@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: 250 245 239;
+    --fg: 30 26 23;
+    --card: 255 255 255;
+    --border: 230 213 191;
+    --muted: 120 100 84;
+  }
+
+  .dark {
+    --bg: 30 26 23;
+    --fg: 245 230 211;
+    --card: 42 36 31;
+    --border: 58 50 43;
+    --muted: 168 150 132;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--bg));
+    color: rgb(var(--fg));
+    font-feature-settings: 'cv11', 'ss01';
+    @apply font-sans antialiased;
+  }
+
+  * {
+    @apply border-primary-200/40 dark:border-dark-border;
+  }
+}
+
+@layer components {
+  .input-base {
+    @apply w-full rounded-md border bg-white px-3 py-2 text-sm shadow-sm outline-none transition
+           placeholder:text-primary-400/70
+           focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20
+           disabled:cursor-not-allowed disabled:opacity-60
+           dark:border-dark-border dark:bg-dark-card dark:text-dark-text
+           dark:placeholder:text-dark-muted dark:focus:border-primary-400;
+  }
+
+  .card-base {
+    @apply rounded-lg border border-primary-100 bg-white p-5 shadow-card
+           dark:border-dark-border dark:bg-dark-card dark:shadow-card-dark;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(139, 94, 60, 0.3) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgba(139, 94, 60, 0.3);
+    border-radius: 9999px;
+  }
+}

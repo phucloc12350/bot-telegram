@@ -1,0 +1,115 @@
+// Prisma schema for Bot Telegram Dashboard
+// Provider: PostgreSQL (Vercel Postgres)
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("POSTGRES_PRISMA_URL")
+  directUrl = env("POSTGRES_URL_NON_POOLING")
+}
+
+// =============================================
+// Enums
+// =============================================
+enum UserRole {
+  ADMIN
+  VIEWER
+}
+
+enum BotType {
+  GOLD
+  FUEL
+  ALERT
+  MANUAL
+  OTHER
+}
+
+enum TriggerType {
+  CRON
+  COMMAND
+  MANUAL
+}
+
+enum LogStatus {
+  SUCCESS
+  FAILED
+}
+
+// =============================================
+// Models
+// =============================================
+model User {
+  id           Int       @id @default(autoincrement())
+  name         String
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  role         UserRole  @default(ADMIN)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+model GoldPrice {
+  id         BigInt   @id @default(autoincrement())
+  type       String   // SJC, DOJI, PNJ, 9999...
+  buyPrice   Decimal  @map("buy_price") @db.Decimal(15, 2)
+  sellPrice  Decimal  @map("sell_price") @db.Decimal(15, 2)
+  source     String
+  recordedAt DateTime @map("recorded_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([type, recordedAt(sort: Desc)])
+  @@index([recordedAt(sort: Desc)])
+  @@map("gold_prices")
+}
+
+model FuelPrice {
+  id         BigInt   @id @default(autoincrement())
+  fuelType   String   @map("fuel_type") // RON95-V, RON95-III, E5RON92, DO-0.05S...
+  price      Decimal  @db.Decimal(10, 2)
+  source     String
+  recordedAt DateTime @map("recorded_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([fuelType, recordedAt(sort: Desc)])
+  @@index([recordedAt(sort: Desc)])
+  @@map("fuel_prices")
+}
+
+model TelegramLog {
+  id           BigInt      @id @default(autoincrement())
+  botType      BotType     @map("bot_type")
+  trigger      TriggerType
+  chatId       String?     @map("chat_id")
+  message      String      @db.Text
+  status       LogStatus
+  errorMessage String?     @map("error_message") @db.Text
+  sentAt       DateTime    @map("sent_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+
+  @@index([sentAt(sort: Desc)])
+  @@index([botType, sentAt(sort: Desc)])
+  @@map("telegram_logs")
+}
+
+model BotSetting {
+  id              Int      @id @default(autoincrement())
+  botName         String   @map("bot_name")
+  botType         BotType  @map("bot_type")
+  chatId          String   @map("chat_id")
+  isActive        Boolean  @default(true) @map("is_active")
+  cronExpression  String?  @map("cron_expression")
+  alertCondition  Json?    @map("alert_condition")
+  messageTemplate String?  @map("message_template") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("bot_settings")
+}
