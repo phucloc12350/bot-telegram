@@ -137,8 +137,18 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-app>.verc
 ```
 
 ### Cron Jobs
-- File `vercel.json` đã định nghĩa 3 cron (gold sync 6h, fuel sync 8h, daily report 9h).
-- **Hobby plan** chỉ cho 2 cron/ngày — cân nhắc Pro plan ($20/tháng) hoặc dùng cron-job.org ping `/api/cron/*` với header `Authorization: Bearer $CRON_SECRET`.
+File `vercel.json` (giờ UTC, Vietnam = UTC+7):
+
+| Path | Cron (UTC) | Giờ Vietnam | Ghi chú |
+|---|---|---|---|
+| `/api/cron/gold-sync` | `0 1 * * *` | 08:00 | Sync giá vàng sáng |
+| `/api/cron/gold-sync` | `0 13 * * *` | 20:00 | Sync giá vàng tối |
+| `/api/cron/fuel-sync` | `0 1 * * *` | 08:00 | Sync giá xăng |
+| `/api/cron/daily-report` | `30 2 * * *` | 09:30 | Báo cáo daily |
+
+**Vercel Hobby quy định: mỗi cron expression chỉ được chạy ≤ 1 lần/ngày.** Muốn 1 endpoint chạy nhiều lần/ngày → tách thành nhiều entries (mỗi entry 1 lần/ngày), như cách `gold-sync` được khai báo 2 lần ở trên.
+
+> Hobby có sai số ±59 phút (cron `0 1 * * *` có thể chạy bất kỳ lúc nào trong khoảng 01:00–01:59 UTC). Nếu cần precision phút hoặc interval < 1 ngày, dùng [cron-job.org](https://cron-job.org) miễn phí ping `/api/cron/*` kèm header `Authorization: Bearer $CRON_SECRET`, hoặc upgrade Pro ($20/tháng).
 
 ---
 
@@ -156,7 +166,7 @@ curl "https://api.telegram.org/bot<TOKEN>/setWebhook?url=https://<your-app>.verc
 | `npm run db:seed` | Seed admin user |
 | `npm run db:studio` | Mở Prisma Studio GUI |
 | `npm run db:reset` | Reset DB (xoá toàn bộ data) |
-
+`
 ---
 
 ## Telegram bot commands
