@@ -1,11 +1,60 @@
-import axios from 'axios';
+import * as cheerio from 'cheerio';
 import { XMLParser } from 'fast-xml-parser';
 
+const URL_24H_DEFAULT = 'https://www.24h.com.vn/gia-vang-hom-nay-c425.html';
 const SJC_XML_DEFAULT = 'https://sjc.com.vn/xml/tygiavang.xml';
 
+const HEADERS_HTML = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'vi-VN,vi;q=0.9,en;q=0.8',
+};
+
 /**
- * Normalize 1 entry từ XML SJC sang shape chuẩn:
- * { type, buy, sell, source, recordedAt }
+ * Parse HTML từ 24h.com.vn:
+ * <table class="gia-vang-search-data-table"> chứa các row:
+ *   <tr data-seach="sjc">
+ *     <td><h2>SJC</h2></td>
+ *     <td><span class="fixW">133,300</span></td>   ← buy (đơn vị: nghìn VND)
+ *     <td><span class="fixW">138,300</span></td>   ← sell
+ *   </tr>
+ * Số "133,300" = 133.3 triệu VND/lượng → nhân 1000 để ra VND đầy đủ.
+ */
+function parse24hHtml(html) {
+  const $ = cheerio.load(html);
+  const recordedAt = new Date();
+  const items = [];
+
+  $('table.gia-vang-search-data-table tbody tr').each((_, tr) => {
+    const $tr = $(tr);
+    const name = $tr.find('h2').first().text().trim();
+    if (!name) return;
+    const prices = $tr
+      .find('td span.fixW')
+      .map((_, span) => $(span).text().trim())
+      .get();
+    if (prices.length < 2) return;
+    const toVnd = (s) => Number(String(s).replace(/[^\d]/g, '')) * 1000;
+    const buy = toVnd(prices[0]);
+    const sell = toVnd(prices[1]);
+    if (!buy && !sell) return;
+    items.push({
+      type: name,
+      buy,
+      sell,
+      source: '24h.com.vn',
+      recordedAt,
+    });
+  });
+
+  return { recordedAt, items };
+}
+
+/**
+ * Parse XML từ SJC chính chủ (https://sjc.com.vn/xml/tygiavang.xml).
+ * Schema: <root><ratelist updated="..."><city name="..."><item type="..." buy="..." sell="..."/></city></ratelist></root>
+ * (Hiện SJC có Cloudflare challenge, gọi từ serverless thường 403 — fallback sang 24h.)
  */
 function parseSjcXml(xml) {
   const parser = new XMLParser({
@@ -25,7 +74,6 @@ function parseSjcXml(xml) {
     null;
   let recordedAt = new Date();
   if (updatedAttr) {
-    // SJC dùng format: "08/06/2026 10:00:00 SA" - cố parse, fallback now
     const d = new Date(updatedAttr);
     if (!Number.isNaN(d.getTime())) recordedAt = d;
   }
@@ -54,57 +102,53 @@ function parseSjcXml(xml) {
   return { recordedAt, items };
 }
 
-/** Mock provider khi không thể fetch SJC */
+/** Fallback khi cả 2 nguồn fail — KHÔNG còn dùng giá trị 78M cũ vì sai thực tế. */
 function mockProvider() {
   const now = new Date();
-  const base = 78_000_000;
-  const rand = (min, max) => Math.floor(min + Math.random() * (max - min));
   return {
     recordedAt: now,
     items: [
-      { type: 'SJC 1L, 10L, 1KG - Hồ Chí Minh', buy: base + rand(-200_000, 200_000), sell: base + rand(100_000, 400_000), source: 'mock', recordedAt: now },
-      { type: 'SJC 1L, 10L, 1KG - Hà Nội', buy: base + rand(-200_000, 200_000), sell: base + rand(100_000, 400_000), source: 'mock', recordedAt: now },
-      { type: 'Nhẫn SJC 99,99 1 chỉ, 2 chỉ, 5 chỉ', buy: 64_500_000 + rand(-100_000, 100_000), sell: 65_500_000 + rand(0, 300_000), source: 'mock', recordedAt: now },
+      { type: 'SJC (mock)', buy: 133_000_000, sell: 138_300_000, source: 'mock', recordedAt: now },
     ],
   };
 }
 
 /**
- * Fetch latest từ SJC XML; nếu fail → trả mock.
+ * Fetch latest. Ưu tiên 24h.com.vn (HTML scrape).
+ * Nếu set GOLD_API_URL = SJC XML → thử SJC trước (sẽ 403 trừ khi có proxy).
  * @param {{ allowMock?: boolean }} opts
  */
 export async function fetchLatestGoldPrices(opts = {}) {
   const { allowMock = true } = opts;
-  const url = process.env.GOLD_API_URL?.trim() || SJC_XML_DEFAULT;
-  const apiKey = process.env.GOLD_API_KEY?.trim() || '';
-  if (!apiKey) {
-    console.warn('[gold provider] API key is not set');
-    return mockProvider();
-  } 
-  const myHeaders = {
-    'x-api-key': apiKey,
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (BotDashboard) AppleWebKit/537.36',
+  const customUrl = process.env.GOLD_API_URL?.trim();
+
+  const tryUrl = async (url) => {
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: HEADERS_HTML,
+      redirect: 'follow',
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const looksXml = text.trimStart().startsWith('<?xml') || url.endsWith('.xml');
+    return looksXml ? parseSjcXml(text) : parse24hHtml(text);
   };
-  const requestOptions = {
-    method: 'GET',
-    headers: myHeaders,
-    redirect: 'follow',
-    timeout: 8000,
-  };
-  try {
-    const res = await fetch(url, requestOptions);
-    if (!res.ok) {
-      console.warn('[gold provider] fetch failed:', res.statusText);
-      if (allowMock) return mockProvider();
-      throw new Error(res.statusText);
+
+  const candidates = customUrl ? [customUrl, URL_24H_DEFAULT] : [URL_24H_DEFAULT, SJC_XML_DEFAULT];
+
+  for (const url of candidates) {
+    try {
+      const parsed = await tryUrl(url);
+      if (parsed.items.length) return parsed;
+      console.warn(`[gold provider] ${url} returned 0 items, try next`);
+    } catch (err) {
+      console.warn(`[gold provider] ${url} failed: ${err.message}`);
     }
-    const data = await res.json();
-    return data;
-  } catch (err) {
-    console.warn('[gold provider] fetch failed:', err.message);
-    if (allowMock) return mockProvider();
-    throw err;
   }
+
+  if (allowMock) {
+    console.warn('[gold provider] all sources failed, using mock');
+    return mockProvider();
+  }
+  throw new Error('All gold price sources failed');
 }
